@@ -1,33 +1,18 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
+import HomeDirectory from '@/views/public/HomeDirectory.vue'
+import BusinessProfile from '../views/public/BusinessProfile.vue'
 
 const routes = [
   {
     path: '/',
     name: 'home',
-    component: () => import('@/views/public/HomeDirectory.vue')
+    component: HomeDirectory
   },
   {
     path: '/negocio/:slug',
     name: 'business-profile',
-    component: () => import('@/views/public/BusinessProfile.vue')
-  },
-  {
-    path: '/login',
-    name: 'login',
-    component: () => import('@/views/public/LoginView.vue')
-  },
-  {
-    path: '/admin/dashboard',
-    name: 'admin-dashboard',
-    component: () => import('@/views/admin/AdminDashboard.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/barbero/panel',
-    name: 'barber-panel',
-    component: () => import('@/views/barber/BarberPanel.vue'),
-    meta: { requiresAuth: true }
+    component: BusinessProfile
   }
 ]
 
