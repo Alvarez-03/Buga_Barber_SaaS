@@ -39,7 +39,7 @@
               to="/directorio"
               class="hidden sm:inline-flex text-xs font-bold text-slate-200 hover:text-white px-3 py-2 rounded-xl transition"
             >
-              Ver mapa
+              Buscar Barberia
             </router-link>
             <router-link
               to="/barbero/login"
