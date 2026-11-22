@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import imageCompression from 'browser-image-compression'
 
-// Obtener detalles de un negocio por su slug con sus respectivos barberos
+// Obtener detalles de un negocio por su slug con sus respectivos barberos y catálogo
 export async function obtenerNegocioPorSlug(slug) {
   const { data: negocio, error: errNegocio } = await supabase
     .from('negocios')
@@ -13,12 +13,25 @@ export async function obtenerNegocioPorSlug(slug) {
 
   const { data: barberos, error: errBarberos } = await supabase
     .from('barberos')
-    .select('*')
+    .select('id, negocios_id, nombre, activo, personas_en_espera, avatar_url, rol, telefono, dias_disponibles, hora_inicio, hora_fin')
     .eq('negocios_id', negocio.id)
 
   if (errBarberos) throw errBarberos
 
-  return { ...negocio, barberos }
+  const { data: fotosCatalogo, error: errFotos } = await supabase
+    .from('portafolio_fotos')
+    .select('id, negocios_id, barbero_id, imagen_url, descripcion, created_at')
+    .eq('negocios_id', negocio.id)
+    .is('barbero_id', null)
+    .order('created_at', { ascending: false })
+
+  if (errFotos) throw errFotos
+
+  return {
+    ...negocio,
+    barberos: barberos || [],
+    portafolio_fotos: fotosCatalogo || []
+  }
 }
 
 // Suscribirse a cambios en tiempo real para la fila en vivo de un negocio
@@ -49,36 +62,31 @@ export const barberService = {
       .from('negocios')
       .select(`
         *,
-        barberos ( id, nombre, activo, personas_en_espera ),
-        portafolio_fotos ( id, imagen_url, descripcion )
+        barberos ( id, negocios_id, nombre, activo, personas_en_espera, avatar_url, rol ),
+        portafolio_fotos ( id, negocios_id, barbero_id, imagen_url, descripcion )
       `)
       .eq('estado_suscripcion', true)
       .order('created_at', { ascending: false })
 
     if (error) throw error
-    return data
+
+    return (data || []).map((negocio) => ({
+      ...negocio,
+      portafolio_fotos: (negocio.portafolio_fotos || []).filter(
+        (foto) => !foto.barbero_id
+      )
+    }))
   },
 
   // Obtener detalle de una sola barbería o independiente por su slug
   async getNegocioBySlug(slug) {
-    const { data, error } = await supabase
-      .from('negocios')
-      .select(`
-        *,
-        barberos ( id, nombre, activo, personas_en_espera ),
-        portafolio_fotos ( id, imagen_url, descripcion )
-      `)
-      .eq('slug_url', slug)
-      .single()
-
-    if (error) throw error
-    return data
+    return obtenerNegocioPorSlug(slug)
   },
 
   // ==========================================
   // 2. MOTOR DE TURNOS Y VALIDACIÓN INTELIGENTE
   // ==========================================
-  
+
   // Valida y crea la cita calculando bloques de 1 hora y el impacto de la fila física
   async crearCita({ negocios_id, barbero_id, cliente_nombre, cliente_telefono, fecha_hora_inicio_str }) {
     const inicioDeseado = new Date(fecha_hora_inicio_str)
@@ -107,7 +115,7 @@ export const barberService = {
       if (barbero.personas_en_espera > 0) {
         const tiempoExtraMs = barbero.personas_en_espera * 60 * 60 * 1000
         const primerEspacioReal = new Date(ahora.getTime() + tiempoExtraMs)
-        
+
         if (inicioDeseado < primerEspacioReal) {
           throw new Error(`El barbero tiene ${barbero.personas_en_espera} persona(s) en espera presencial. El próximo espacio libre estimado es a partir de las ${primerEspacioReal.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`)
         }
@@ -187,8 +195,8 @@ export const barberService = {
   // ==========================================
   async subirImagenBucket(file, carpeta = 'cortes') {
     const opcionesCompresion = {
-      maxSizeMB: 0.3,          // Máximo 300KB
-      maxWidthOrHeight: 1024,  // Resolución óptima para web/móvil
+      maxSizeMB: 0.3,
+      maxWidthOrHeight: 1024,
       useWebWorker: true
     }
 
@@ -217,12 +225,12 @@ export const barberService = {
     return data.publicUrl
   },
 
-  async agregarFotoPortafolio(negocios_id, file, descripcion = '') {
+  async agregarFotoPortafolio(negocios_id, file, descripcion = '', barbero_id = null) {
     const imagen_url = await this.subirImagenBucket(file, 'portafolios')
 
     const { data, error } = await supabase
       .from('portafolio_fotos')
-      .insert({ negocios_id, imagen_url, descripcion })
+      .insert({ negocios_id, barbero_id, imagen_url, descripcion })
       .select()
       .single()
 
