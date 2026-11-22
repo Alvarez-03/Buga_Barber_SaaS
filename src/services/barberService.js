@@ -88,7 +88,14 @@ export const barberService = {
   // ==========================================
 
   // Valida y crea la cita calculando bloques de 1 hora y el impacto de la fila física
-  async crearCita({ negocios_id, barbero_id, cliente_nombre, cliente_telefono, fecha_hora_inicio_str }) {
+  async crearCita({
+    negocios_id,
+    barbero_id,
+    cliente_nombre,
+    cliente_telefono,
+    cliente_email = null,
+    fecha_hora_inicio_str
+  }) {
     const inicioDeseado = new Date(fecha_hora_inicio_str)
     const ahora = new Date()
 
@@ -152,6 +159,7 @@ export const barberService = {
         barbero_id,
         cliente_nombre,
         cliente_telefono,
+        cliente_email: cliente_email?.trim() || null,
         fecha_hora_inicio: inicioDeseado.toISOString(),
         fecha_hora_fin: finDeseado.toISOString(),
         estado: 'pendiente'
@@ -161,6 +169,49 @@ export const barberService = {
 
     if (errInsert) throw errInsert
     return nuevaCita
+  },
+
+  // Consultar una cita pública por su tracking_token con datos del negocio y barbero
+  async obtenerCitaPorTrackingToken(token) {
+    const { data, error } = await supabase
+      .from('citas')
+      .select(`
+        id,
+        negocios_id,
+        barbero_id,
+        cliente_nombre,
+        cliente_telefono,
+        cliente_email,
+        fecha_hora_inicio,
+        fecha_hora_fin,
+        estado,
+        tracking_token,
+        motivo_cancelacion,
+        created_at,
+        negocios ( id, nombre, slug_url, direccion, telefono, precio_base, tipo ),
+        barberos ( id, nombre, avatar_url, telefono )
+      `)
+      .eq('tracking_token', token)
+      .single()
+
+    if (error) throw error
+    return data
+  },
+
+  // Cancelar una cita desde el panel del barbero/admin
+  async cancelarCita(citaId, motivoCancelacion = null) {
+    const { data, error } = await supabase
+      .from('citas')
+      .update({
+        estado: 'cancelada',
+        motivo_cancelacion: motivoCancelacion?.trim() || null
+      })
+      .eq('id', citaId)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
   },
 
   // ==========================================

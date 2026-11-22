@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watchEffect } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue3-toastify'
 import { supabase } from '@/services/supabase'
 import { barberService } from '@/services/barberService'
@@ -8,11 +8,22 @@ import Navbar from '@/components/Navbar.vue'
 import BookingModal from '@/components/BookingModal.vue'
 
 const route = useRoute()
+const router = useRouter()
 const negocio = ref(null)
 const modalAbierto = ref(false)
 const barberoSeleccionado = ref(null)
 const tabActiva = ref('barberos') // 'barberos' | 'precios' | 'portafolio'
+const codigoSeguimiento = ref('')
 let realtimeChannel = null
+
+function esRolAdminBarberia(barbero) {
+  return String(barbero?.rol || '').trim().toLowerCase() === 'admin_barberia'
+}
+
+const barberosAgendables = computed(() => {
+  if (!negocio.value?.barberos) return []
+  return negocio.value.barberos.filter((b) => !esRolAdminBarberia(b))
+})
 
 async function cargarDatos() {
   try {
@@ -20,19 +31,23 @@ async function cargarDatos() {
     const data = await barberService.getNegocioBySlug(slug)
     negocio.value = data
 
-    // Mantener o preseleccionar el primer barbero activo
-    if (data?.barberos?.length) {
+    const disponibles = (data?.barberos || []).filter((b) => !esRolAdminBarberia(b))
+
+    // Mantener o preseleccionar el primer barbero activo (excluyendo admin_barberia)
+    if (disponibles.length) {
       const actualSigueActivo =
         barberoSeleccionado.value &&
-        data.barberos.some((b) => b.id === barberoSeleccionado.value.id && b.activo)
+        disponibles.some((b) => b.id === barberoSeleccionado.value.id && b.activo)
 
       if (actualSigueActivo) {
-        barberoSeleccionado.value = data.barberos.find(
+        barberoSeleccionado.value = disponibles.find(
           (b) => b.id === barberoSeleccionado.value.id
         )
       } else {
-        barberoSeleccionado.value = data.barberos.find((b) => b.activo) || null
+        barberoSeleccionado.value = disponibles.find((b) => b.activo) || null
       }
+    } else {
+      barberoSeleccionado.value = null
     }
   } catch (error) {
     console.error('Error al cargar negocio:', error)
@@ -92,15 +107,13 @@ onUnmounted(() => {
 })
 
 const barberosActivosCount = computed(() => {
-  if (!negocio.value?.barberos) return 0
-  return negocio.value.barberos.filter((b) => b.activo).length
+  return barberosAgendables.value.filter((b) => b.activo).length
 })
 
 const estaAbierto = computed(() => barberosActivosCount.value > 0)
 
 const totalEnEspera = computed(() => {
-  if (!negocio.value?.barberos) return 0
-  return negocio.value.barberos
+  return barberosAgendables.value
     .filter((b) => b.activo)
     .reduce((acc, b) => acc + (b.personas_en_espera || 0), 0)
 })
@@ -135,7 +148,7 @@ function calcularHoraLibre(barbero) {
 }
 
 const resumenBarberoSeleccionado = computed(() => {
-  if (!barberoSeleccionado.value) return null
+  if (!barberoSeleccionado.value || esRolAdminBarberia(barberoSeleccionado.value)) return null
   const horario = calcularHoraLibre(barberoSeleccionado.value)
   return {
     primerNombre: barberoSeleccionado.value.nombre?.split(' ')[0] || 'barbero',
@@ -145,12 +158,12 @@ const resumenBarberoSeleccionado = computed(() => {
 })
 
 function seleccionarBarbero(barbero) {
-  if (!barbero.activo) return
+  if (!barbero?.activo || esRolAdminBarberia(barbero)) return
   barberoSeleccionado.value = barbero
 }
 
 function abrirAgendamiento(barbero = barberoSeleccionado.value) {
-  if (!barbero || !barbero.activo) return
+  if (!barbero || !barbero.activo || esRolAdminBarberia(barbero)) return
   barberoSeleccionado.value = barbero
   modalAbierto.value = true
 }
@@ -179,7 +192,6 @@ async function compartirPerfil() {
       await navigator.share({ title: titulo, url })
       return
     } catch {
-      // Si cancela el diálogo nativo, no mostramos error
       return
     }
   }
@@ -190,6 +202,15 @@ async function compartirPerfil() {
   } catch {
     toast.info(url)
   }
+}
+
+function consultarCitaPorToken() {
+  const limpio = codigoSeguimiento.value.trim()
+  if (!limpio) {
+    toast.info('Pega el código o token de tu cita para ver su estado en vivo')
+    return
+  }
+  router.push(`/cita/${limpio}`)
 }
 
 function obtenerIniciales(nombre) {
@@ -287,8 +308,7 @@ function formatearMoneda(valor) {
           </div>
         </div>
 
-        <!-- PESTAÑAS (En móvil alterna vistas; en PC sirve de acceso rápido / sub-sección) -->
-        <!-- PESTAÑAS SOLO EN MÓVIL (Ocultas en PC para mostrar barberos, precios y portafolio juntos) -->
+        <!-- PESTAÑAS SOLO EN MÓVIL -->
         <div class="lg:hidden border-y border-slate-200/80 px-4 grid grid-cols-3 text-center">
           <button
             type="button"
@@ -324,9 +344,9 @@ function formatearMoneda(valor) {
           </button>
         </div>
 
-        <!-- CONTENIDO PRINCIPAL: 1 COLUMNA EN MÓVIL, 2 COLUMNAS EN PC -->
+        <!-- CONTENIDO PRINCIPAL -->
         <div class="p-4 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start bg-slate-50/50">
-          <!-- COLUMNA BARBEROS (Visible en móvil si tabActiva === 'barberos', y siempre visible en PC) -->
+          <!-- COLUMNA BARBEROS -->
           <div
             :class="tabActiva === 'barberos' ? 'block' : 'hidden lg:block'"
             class="lg:col-span-7 space-y-3.5"
@@ -336,7 +356,7 @@ function formatearMoneda(valor) {
             </p>
 
             <div
-              v-if="!negocio.barberos || negocio.barberos.length === 0"
+              v-if="barberosAgendables.length === 0"
               class="bg-white rounded-2xl p-6 text-center border border-slate-200/80 text-xs text-slate-500"
             >
               Este establecimiento aún no tiene barberos registrados.
@@ -344,7 +364,7 @@ function formatearMoneda(valor) {
 
             <div v-else class="space-y-3">
               <div
-                v-for="barbero in negocio.barberos"
+                v-for="barbero in barberosAgendables"
                 :key="barbero.id"
                 @click="seleccionarBarbero(barbero)"
                 :class="[
@@ -356,7 +376,6 @@ function formatearMoneda(valor) {
                 class="rounded-2xl p-4 flex items-center justify-between gap-3 transition-all"
               >
                 <div class="flex items-center gap-3 min-w-0">
-                  <!-- Radio Button Visual -->
                   <span
                     :class="barberoSeleccionado?.id === barbero.id && barbero.activo
                       ? 'border-[#be123c]'
@@ -369,7 +388,6 @@ function formatearMoneda(valor) {
                     ></span>
                   </span>
 
-                  <!-- Avatar / Iniciales -->
                   <img
                     v-if="barbero.avatar_url"
                     :src="barbero.avatar_url"
@@ -383,7 +401,6 @@ function formatearMoneda(valor) {
                     {{ obtenerIniciales(barbero.nombre) }}
                   </div>
 
-                  <!-- Nombre y Fila -->
                   <div class="min-w-0">
                     <h2 class="font-extrabold text-[#0b1329] text-sm truncate">
                       {{ barbero.nombre }}
@@ -399,7 +416,6 @@ function formatearMoneda(valor) {
                   </div>
                 </div>
 
-                <!-- Badge En línea / Inactivo -->
                 <span
                   :class="barbero.activo
                     ? 'bg-emerald-100 text-emerald-700'
@@ -412,7 +428,7 @@ function formatearMoneda(valor) {
             </div>
           </div>
 
-          <!-- COLUMNA LATERAL: PRECIOS Y PORTAFOLIO (En móvil según pestaña; en PC siempre accesible) -->
+          <!-- COLUMNA LATERAL -->
           <div class="lg:col-span-5 space-y-5">
             <!-- Tarjeta de Precios -->
             <div
@@ -469,6 +485,26 @@ function formatearMoneda(valor) {
                 Aún no hay fotos publicadas en el portafolio.
               </p>
             </div>
+
+            <!-- Seguimiento rápido por token -->
+            <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-2">
+              <p class="text-xs font-extrabold text-[#0b1329]">¿Ya separaste una cita?</p>
+              <div class="flex gap-2">
+                <input
+                  v-model="codigoSeguimiento"
+                  type="text"
+                  placeholder="Pega tu código de cita"
+                  class="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-[#0b1329]"
+                />
+                <button
+                  type="button"
+                  @click="consultarCitaPorToken"
+                  class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer shrink-0"
+                >
+                  Ver estado
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -480,7 +516,7 @@ function formatearMoneda(valor) {
       <p class="text-xs text-slate-500 font-medium">Cargando perfil del establecimiento...</p>
     </div>
 
-    <!-- BARRA INFERIOR DE ACCIÓN PARA AGENDAR (Móvil fija abajo + Escritorio centrada) -->
+    <!-- BARRA INFERIOR DE ACCIÓN PARA AGENDAR -->
     <div
       v-if="negocio"
       class="fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.06)]"

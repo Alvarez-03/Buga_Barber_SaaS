@@ -11,6 +11,7 @@ import AdminNavbar from '../components/AdminNavbar.vue'
 import AdminTeamView from '../views/admin/AdminTeamView.vue'
 import AdminBusinessView from '../views/admin/AdminBusinessView.vue'
 import LandingView from '../views/public/LandingView.vue'
+import AppointmentStatusView from '../views/public/AppointmentStatusView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -19,6 +20,7 @@ const router = createRouter({
     { path: '/directorio', name: 'home', component: HomeDirectory },
     { path: '/negocio/:slug', name: 'business-profile', component: BusinessProfile },
     { path: '/barbero/login', name: 'barber-login', component: LoginBarber },
+    { path: '/cita/:token', name: 'AppointmentStatus', component: AppointmentStatusView },
 
     // Rutas de Barbero (Local e Independiente)
     {
